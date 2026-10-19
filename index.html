@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>作業日報</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="topbar">
+  <h1>作業日報</h1>
+  <span id="modeBadge" class="badge" hidden>お試しモード</span>
+</header>
+
+<!-- 入力 -->
+<main id="view-input" class="view">
+  <section class="datebar">
+    <button id="prevDay" class="iconbtn" aria-label="前の日">◀</button>
+    <label class="datepick">
+      <span id="dateLabel"></span>
+      <input type="date" id="dateInput" aria-label="日付を選ぶ">
+    </label>
+    <button id="nextDay" class="iconbtn" aria-label="次の日">▶</button>
+  </section>
+
+  <div id="emptyHelp" class="empty" hidden>
+    <p>この日の日報はまだありません</p>
+    <button id="useTemplate" class="btn primary">いつもの形で始める</button>
+    <button id="copyPrev" class="btn">前回の日報をコピー</button>
+  </div>
+
+  <div id="blocks"></div>
+
+  <div class="addrow">
+    <button id="addWork" class="btn ghost">＋ 現場・作業を追加</button>
+    <button id="addBreak" class="btn ghost">＋ 休憩を追加</button>
+  </div>
+
+  <div class="savebar">
+    <button id="saveBtn" class="btn primary big">保存する</button>
+  </div>
+</main>
+
+<!-- 印刷 -->
+<main id="view-print" class="view" hidden>
+  <section class="card">
+    <h2>印刷する期間</h2>
+    <div class="range">
+      <input type="date" id="pFrom" aria-label="開始日"><span>〜</span><input type="date" id="pTo" aria-label="終了日">
+    </div>
+    <div class="quick">
+      <button class="btn small" data-range="today">今日</button>
+      <button class="btn small" data-range="week">今週</button>
+      <button class="btn small" data-range="lastweek">先週</button>
+      <button class="btn small" data-range="month">今月</button>
+    </div>
+    <div class="row2">
+      <button id="previewBtn" class="btn">プレビュー</button>
+      <button id="pdfBtn" class="btn primary">PDFを作る</button>
+    </div>
+    <p class="hint" id="pdfHint">PDFは Googleドライブの「作業日報PDF」フォルダに保存されます。</p>
+  </section>
+  <div id="pdfResult"></div>
+  <div id="pages"></div>
+</main>
+
+<!-- 設定 -->
+<main id="view-settings" class="view" hidden>
+  <section class="card">
+    <h2>日報に印刷する内容</h2>
+    <label class="f">氏名<input id="sName" placeholder="例：駒井"></label>
+    <label class="f">会社名（用紙の一番下）<input id="sCompany" placeholder="例：(有)○○建築工業"></label>
+  </section>
+  <section class="card">
+    <h2>「いつもの形」の時間</h2>
+    <div class="grid2">
+      <label class="f">始業<select id="sStart"></select></label>
+      <label class="f">終業<select id="sEnd"></select></label>
+      <label class="f">昼休み 開始<select id="sLunchStart"></select></label>
+      <label class="f">昼休み 終了<select id="sLunchEnd"></select></label>
+    </div>
+  </section>
+  <button id="saveSettings" class="btn primary big">設定を保存</button>
+  <p class="hint" id="modeHint"></p>
+</main>
+
+<nav class="tabbar">
+  <button data-tab="input" class="active">入力</button>
+  <button data-tab="print">印刷</button>
+  <button data-tab="settings">設定</button>
+</nav>
+
+<datalist id="dl-sites"></datalist>
+<datalist id="dl-contents"></datalist>
+<datalist id="dl-materials"></datalist>
+<datalist id="dl-units"></datalist>
+
+<div id="toast" role="status"></div>
+<div id="loading" hidden><div class="spinner"></div><p id="loadingText">読み込み中…</p></div>
+<div id="capture" aria-hidden="true"></div>
+
+<script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="config.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
