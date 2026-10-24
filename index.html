@@ -36,6 +36,8 @@
     <button id="addBreak" class="btn ghost">＋ 休憩を追加</button>
   </div>
 
+  <section id="crew" class="card"></section>
+
   <div class="savebar">
     <button id="saveBtn" class="btn primary big">保存する</button>
   </div>
@@ -54,6 +56,12 @@
       <button class="btn small" data-range="lastweek">先週</button>
       <button class="btn small" data-range="month">今月</button>
     </div>
+    <label class="f">用紙
+      <select id="pFormat">
+        <option value="b5">B5 横・1枚に2日分</option>
+        <option value="a4">A4 縦・1枚に1日分</option>
+      </select>
+    </label>
     <div class="row2">
       <button id="previewBtn" class="btn">プレビュー</button>
       <button id="pdfBtn" class="btn primary">PDFを作る</button>
@@ -94,6 +102,8 @@
 <datalist id="dl-contents"></datalist>
 <datalist id="dl-materials"></datalist>
 <datalist id="dl-units"></datalist>
+<datalist id="dl-crewsites"></datalist>
+<datalist id="dl-crewtime"><option value="1日"></option><option value="午前"></option><option value="午後"></option></datalist>
 
 <div id="toast" role="status"></div>
 <div id="loading" hidden><div class="spinner"></div><p id="loadingText">読み込み中…</p></div>
