@@ -495,7 +495,7 @@ function renderPage(day, st) {
   // 右上：一緒に作業した人と行き先（グループごとに線で区切る）
   const crew = (day.crew || []).filter(g => g.people.length);
   if (crew.length) {
-    const AREA_W = 300, AREA_H = 170;
+    const AREA_W = 320, AREA_H = 145;
     // 小さい字（時間・半日休み）は0.75行として数え、全体が枠に収まる文字の大きさにする
     const destLines = g => g.off === '1日' ? 1 : 1 + (g.time ? 0.75 : 0) + (g.off ? 0.75 : 0);
     const lines = crew.reduce((n, g) => n + Math.max(g.people.length, destLines(g)) * 1.3 + 0.4, 0);
@@ -506,7 +506,7 @@ function renderPage(day, st) {
       return `<div class="s-grp" style="font-size:${fs}px"><div class="s-ppl">${g.people.map(p => `<div>・${esc(p)}<small>さん</small></div>`).join('')}</div>
         <div class="s-brace"></div>${dest}</div>`;
     }).join('');
-    add('s-workers', `left:470px;top:48px;width:${AREA_W}px;max-height:${AREA_H + 10}px`, html);
+    add('s-workers', `left:440px;top:72px;width:${AREA_W}px;max-height:${AREA_H + 10}px`, html);
   }
 
   // 表の枠
@@ -587,7 +587,13 @@ async function saveSettings() {
 }
 
 // ---------- 画面切り替え ----------
-function showTab(tab) {
+async function showTab(tab) {
+  if (tab !== 'input' && state.dirty && !$('#view-input').hidden) {
+    if (confirm('保存していない変更があります。保存しますか？\n（保存しないと印刷に入りません）')) {
+      try { await save(); } catch { return; }
+      if (state.dirty) return; // 時間の入力ミスなどで保存できなかった
+    }
+  }
   document.querySelectorAll('.view').forEach(v => { v.hidden = v.id !== 'view-' + tab; });
   document.querySelectorAll('.tabbar button').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
   if (tab === 'settings') renderSettings();
