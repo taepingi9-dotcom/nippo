@@ -447,18 +447,22 @@ async function makePdf() {
   const [pw, ph] = fmt.orientation === 'landscape' ? [Math.max(...fmt.mm), Math.min(...fmt.mm)] : fmt.mm;
   const from = $('#pFrom').value, to = $('#pTo').value;
   const name = from === to ? `作業日報_${from}.pdf` : `作業日報_${from}_${to}.pdf`;
-  const sheets = renderSheets(days, fmt);
+  const sheetCount = Math.ceil(days.length / fmt.perSheet);
   const result = await withLoading(async () => {
     if (document.fonts) await document.fonts.ready;
     const pdf = new window.jspdf.jsPDF({ unit: 'mm', format: fmt.mm, orientation: fmt.orientation });
     const cap = $('#capture');
-    for (let i = 0; i < sheets.length; i++) {
-      $('#loadingText').textContent = `PDFを作成中… ${i + 1}/${sheets.length}`;
+    // スマホのLINEでは横に長い画像の右側が写らないことがあるので、1日分ずつ画像にして左右に並べる
+    const slotW = pw / fmt.perSheet;
+    for (let i = 0; i < days.length; i++) {
+      const slot = i % fmt.perSheet;
+      $('#loadingText').textContent = `PDFを作成中… ${i + 1}/${days.length}日`;
       cap.innerHTML = '';
-      cap.appendChild(sheets[i]);
-      const canvas = await html2canvas(sheets[i], { scale: fmt.perSheet === 2 ? 2 : 2.5, backgroundColor: '#ffffff', logging: false });
-      if (i > 0) pdf.addPage(fmt.mm, fmt.orientation);
-      pdf.addImage(canvas.toDataURL('image/jpeg', 0.85), 'JPEG', 0, 0, pw, ph);
+      const page = renderPage(days[i], state.settings);
+      cap.appendChild(page);
+      const canvas = await html2canvas(page, { scale: 2.5, backgroundColor: '#ffffff', logging: false, windowWidth: 794, windowHeight: 1123 });
+      if (i > 0 && slot === 0) pdf.addPage(fmt.mm, fmt.orientation);
+      pdf.addImage(canvas.toDataURL('image/jpeg', 0.85), 'JPEG', slot * slotW, 0, slotW, ph);
     }
     cap.innerHTML = '';
     if (MOCK) { pdf.save(name); return null; }
@@ -467,7 +471,7 @@ async function makePdf() {
     return Api.call('uploadPdf', { name, data: b64 });
   }, 'PDFを作成中…');
   if (!result) { toast('PDFをダウンロードしました'); return; }
-  $('#pdfResult').innerHTML = `<section class="card"><h2>PDFができました（${sheets.length}枚）</h2>
+  $('#pdfResult').innerHTML = `<section class="card"><h2>PDFができました（${sheetCount}枚）</h2>
     <p class="hint">${esc(result.name)}　印刷するときは用紙サイズを${$('#pFormat').value === 'b5' ? '「B5・横」' : '「A4・縦」'}にしてください。</p>
     <button class="btn primary big" id="openPdf">PDFを開く</button></section>`;
   $('#openPdf').onclick = () => liff.openWindow({ url: result.url, external: true });
