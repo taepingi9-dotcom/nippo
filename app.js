@@ -164,7 +164,8 @@ function renderCrew() {
       ${g.off === '1日' ? '' : `<div class="crewrow">
         <label class="f">行き先<input data-cf="site" list="dl-crewsites" value="${esc(g.site)}" placeholder="例：鳥羽邸、鈴木邸→鳥羽邸"></label>
         <label class="f">時間<input data-cf="time" list="dl-crewtime" value="${esc(g.time)}" placeholder="1日"></label>
-      </div>`}
+      </div>
+      <button class="linkbtn" data-cact="dup">＋ 同じ人で別の行き先を追加（半日ずつなど）</button>`}
     </div>`).join('')}
     <button class="btn ghost" data-cact="addGroup">＋ 人と行き先を追加</button>
     <p class="hint">同じ現場の人は1つにまとめます。違う現場の人や休みの人は「＋」で分けてください。一人で作業した日は空のままでOK。</p>`;
@@ -196,6 +197,10 @@ function onCrewClick(e) {
   } else {
     const i = +btn.closest('[data-ci]').dataset.ci, g = crew[i];
     if (btn.dataset.cact === 'del') crew.splice(i, 1);
+    if (btn.dataset.cact === 'dup') {
+      if (!g.time || g.time === '1日') g.time = '半日';
+      crew.splice(i + 1, 0, { people: [...g.people], site: '', time: '半日', off: '' });
+    }
     if (btn.dataset.cact === 'toggle') {
       const name = btn.dataset.name;
       g.people = g.people.includes(name) ? g.people.filter(p => p !== name) : [...g.people, name];
@@ -500,16 +505,21 @@ function renderPage(day, st) {
   const crew = (day.crew || []).filter(g => g.people.length);
   if (crew.length) {
     const AREA_W = 320, AREA_H = 145;
+    // 同じ顔ぶれのグループは1つにまとめ、名前は1回だけ、行き先を上下に並べる（例：半日 鈴木邸／半日 鳥羽邸）
+    const merged = [];
+    crew.forEach(g => {
+      const key = [...g.people].sort().join('、');
+      const m = merged.find(x => x.key === key);
+      if (m) m.dests.push(g); else merged.push({ key, people: g.people, dests: [g] });
+    });
     // 小さい字（時間・半日休み）は0.75行として数え、全体が枠に収まる文字の大きさにする
     const destLines = g => g.off === '1日' ? 1 : 1 + (g.time ? 0.75 : 0) + (g.off ? 0.75 : 0);
-    const lines = crew.reduce((n, g) => n + Math.max(g.people.length, destLines(g)) * 1.3 + 0.4, 0);
+    const lines = merged.reduce((n, m) => n + Math.max(m.people.length, m.dests.reduce((k, g) => k + destLines(g), 0)) * 1.3 + 0.4, 0);
     const fs = Math.min(20, AREA_H / lines);
-    const html = crew.map(g => {
-      const dest = g.off === '1日' ? '<div class="s-dest off">休み</div>'
-        : `<div class="s-dest">${g.time ? `<small>${esc(g.time)}</small>` : ''}<div>${esc(g.site)}</div>${g.off ? `<small class="halfoff">（${g.off}休み）</small>` : ''}</div>`;
-      return `<div class="s-grp" style="font-size:${fs}px"><div class="s-ppl">${g.people.map(p => `<div>・${esc(p)}<small>さん</small></div>`).join('')}</div>
-        <div class="s-brace"></div>${dest}</div>`;
-    }).join('');
+    const destHtml = g => g.off === '1日' ? '<div class="s-dest1 off">休み</div>'
+      : `<div class="s-dest1">${g.time ? `<small>${esc(g.time)}</small>` : ''}<div>${esc(g.site)}</div>${g.off ? `<small class="halfoff">（${g.off}休み）</small>` : ''}</div>`;
+    const html = merged.map(m => `<div class="s-grp" style="font-size:${fs}px"><div class="s-ppl">${m.people.map(p => `<div>・${esc(p)}<small>さん</small></div>`).join('')}</div>
+        <div class="s-brace"></div><div class="s-dest">${m.dests.map(destHtml).join('')}</div></div>`).join('');
     add('s-workers', `left:440px;top:72px;width:${AREA_W}px;max-height:${AREA_H + 10}px`, html);
   }
 
