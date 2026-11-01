@@ -403,24 +403,33 @@ async function fetchPrintDays() {
   state.printDays = days.map(normalizeDay).filter(d => d.blocks.length || d.crew.length);
   return state.printDays;
 }
-// B5横に2日分（A4縦を2枚並べた比率とほぼ同じ）、またはA4縦に1日分
+// 用紙の並べ方（mm）。左側は、とじしろとして広めにあける
+// slotW：1日分の幅。高さは PAGE_W:PAGE_H の比で決まる
 const FORMATS = {
-  b5: { perSheet: 2, w: 1588, h: 1125, mm: [257, 182], orientation: 'landscape' },
-  a4: { perSheet: 1, w: 794, h: 1123, mm: [210, 297], orientation: 'portrait' },
+  b5: { perSheet: 2, mm: [257, 182], orientation: 'landscape', left: 20, top: 6, slotW: 113, gap: 6 },
+  a4: { perSheet: 1, mm: [210, 297], orientation: 'portrait', left: 25, top: 18, slotW: 170, gap: 0 },
 };
 function printFormat() { return FORMATS[$('#pFormat').value] || FORMATS.b5; }
+function paperSize(fmt) { return fmt.orientation === 'landscape' ? [Math.max(...fmt.mm), Math.min(...fmt.mm)] : fmt.mm; }
+function slotRect(fmt, slot) {
+  return { x: fmt.left + slot * (fmt.slotW + fmt.gap), y: fmt.top, w: fmt.slotW, h: fmt.slotW * PAGE_H / PAGE_W };
+}
+// プレビュー用：用紙1枚（余白込み）を画面に描く
 function renderSheets(days, fmt) {
+  const k = PAGE_W / fmt.slotW; // 1mm あたりの px
+  const [pw, ph] = paperSize(fmt);
   const sheets = [];
   for (let i = 0; i < days.length; i += fmt.perSheet) {
     const el = document.createElement('div');
     el.className = 'psheet';
-    el.style.width = fmt.w + 'px'; el.style.height = fmt.h + 'px';
-    for (let j = 0; j < fmt.perSheet; j++) {
-      const d = days[i + j];
-      if (d) el.appendChild(renderPage(d, state.settings));
-      else { const blank = document.createElement('div'); blank.className = 'sheet'; el.appendChild(blank); }
+    el.style.width = pw * k + 'px'; el.style.height = ph * k + 'px';
+    for (let j = 0; j < fmt.perSheet && days[i + j]; j++) {
+      const r = slotRect(fmt, j);
+      const page = renderPage(days[i + j], state.settings);
+      page.style.left = r.x * k + 'px'; page.style.top = r.y * k + 'px';
+      el.appendChild(page);
     }
-    sheets.push(el);
+    sheets.push({ el, w: pw * k, h: ph * k });
   }
   return sheets;
 }
@@ -432,15 +441,15 @@ async function preview() {
   const box = $('#pages');
   if (!days.length) { box.innerHTML = '<p class="hint">この期間の日報はありません</p>'; return; }
   const fmt = printFormat();
-  const scale = Math.min(1, (box.clientWidth || 360) / fmt.w);
   box.innerHTML = '';
-  renderSheets(days, fmt).forEach(sheet => {
+  renderSheets(days, fmt).forEach(({ el, w, h }) => {
+    const scale = Math.min(1, (box.clientWidth || 360) / w);
     const wrap = document.createElement('div');
     wrap.className = 'pagewrap';
-    wrap.style.width = fmt.w * scale + 'px';
-    wrap.style.height = fmt.h * scale + 'px';
-    sheet.style.transform = `scale(${scale})`;
-    wrap.appendChild(sheet);
+    wrap.style.width = w * scale + 'px';
+    wrap.style.height = h * scale + 'px';
+    el.style.transform = `scale(${scale})`;
+    wrap.appendChild(el);
     box.appendChild(wrap);
   });
 }
@@ -449,7 +458,6 @@ async function makePdf() {
   if (!days) return;
   if (!days.length) { toast('この期間の日報はありません'); return; }
   const fmt = printFormat();
-  const [pw, ph] = fmt.orientation === 'landscape' ? [Math.max(...fmt.mm), Math.min(...fmt.mm)] : fmt.mm;
   const from = $('#pFrom').value, to = $('#pTo').value;
   const name = from === to ? `作業日報_${from}.pdf` : `作業日報_${from}_${to}.pdf`;
   const sheetCount = Math.ceil(days.length / fmt.perSheet);
@@ -458,16 +466,16 @@ async function makePdf() {
     const pdf = new window.jspdf.jsPDF({ unit: 'mm', format: fmt.mm, orientation: fmt.orientation });
     const cap = $('#capture');
     // スマホのLINEでは横に長い画像の右側が写らないことがあるので、1日分ずつ画像にして左右に並べる
-    const slotW = pw / fmt.perSheet;
     for (let i = 0; i < days.length; i++) {
       const slot = i % fmt.perSheet;
       $('#loadingText').textContent = `PDFを作成中… ${i + 1}/${days.length}日`;
       cap.innerHTML = '';
       const page = renderPage(days[i], state.settings);
       cap.appendChild(page);
-      const canvas = await html2canvas(page, { scale: 2.5, backgroundColor: '#ffffff', logging: false, windowWidth: 794, windowHeight: 1123 });
+      const canvas = await html2canvas(page, { scale: 2.8, backgroundColor: '#ffffff', logging: false, windowWidth: PAGE_W, windowHeight: PAGE_H });
       if (i > 0 && slot === 0) pdf.addPage(fmt.mm, fmt.orientation);
-      pdf.addImage(canvas.toDataURL('image/jpeg', 0.85), 'JPEG', slot * slotW, 0, slotW, ph);
+      const r = slotRect(fmt, slot);
+      pdf.addImage(canvas.toDataURL('image/jpeg', 0.85), 'JPEG', r.x, r.y, r.w, r.h);
     }
     cap.innerHTML = '';
     if (MOCK) { pdf.save(name); return null; }
@@ -483,28 +491,29 @@ async function makePdf() {
 }
 
 // 用紙1枚分。紙の業務日報と同じ並びで描く
+const PAGE_W = 730, PAGE_H = 1098;
 function renderPage(day, st) {
-  const H = 41, TOP = 357, L = 125, M = 335, R = 680, TT = 292, HH = 31;
+  const H = 50, TOP = 365, L = 85, M = 330, R = 725, TT = 295, HH = 36;
   const bl = [...day.blocks].sort((a, b) => toMin(a.start) - toMin(b.start));
   const mins = bl.flatMap(b => [toMin(b.start), toMin(b.end)]);
   const startH = Math.min(8, Math.floor(Math.min(480, ...mins) / 60));
   const endH = Math.max(18, Math.ceil(Math.max(1080, ...mins) / 60));
-  const span = Math.max(14, endH - startH);
+  const span = Math.max(13, endH - startH);
   const Y = m => TOP + (m / 60 - startH) * H;
   const bottom = TOP + (span + 0.35) * H;
   const d = parseYmd(day.date);
   const parts = [];
   const add = (cls, style, html = '') => parts.push(`<div class="${cls}" style="${style}">${html}</div>`);
 
-  add('s-title', 'left:0;top:52px;width:690px', '業務日報');
-  add('s-date', 'left:95px;top:150px;width:285px',
+  add('s-title', 'left:0;top:22px;width:520px', '業務日報');
+  add('s-date', 'left:30px;top:118px;width:300px',
     `<span class="n">${d.getMonth() + 1}</span>月<span class="n">${d.getDate()}</span>日（${WD[d.getDay()]}）`);
-  add('s-name', 'left:420px;top:228px;width:280px', `<small>氏名</small><span>${esc(st.name)}</span>`);
+  add('s-name', 'left:330px;top:232px;width:310px', `<small>氏名</small><span>${esc(st.name)}</span>`);
 
   // 右上：一緒に作業した人と行き先（グループごとに線で区切る）
   const crew = (day.crew || []).filter(g => g.people.length);
   if (crew.length) {
-    const AREA_W = 320, AREA_H = 145;
+    const AREA_W = 330, AREA_H = 165;
     // 同じ顔ぶれのグループは1つにまとめ、名前は1回だけ、行き先を上下に並べる（例：半日 鈴木邸／半日 鳥羽邸）
     const merged = [];
     crew.forEach(g => {
@@ -515,12 +524,15 @@ function renderPage(day, st) {
     // 小さい字（時間・半日休み）は0.75行として数え、全体が枠に収まる文字の大きさにする
     const destLines = g => g.off === '1日' ? 1 : 1 + (g.time ? 0.75 : 0) + (g.off ? 0.75 : 0);
     const lines = merged.reduce((n, m) => n + Math.max(m.people.length, m.dests.reduce((k, g) => k + destLines(g), 0)) * 1.3 + 0.4, 0);
-    const fs = Math.min(20, AREA_H / lines);
+    const fs = Math.min(26, AREA_H / lines); // 日付と同じくらいの大きさまで
     const destHtml = g => g.off === '1日' ? '<div class="s-dest1 off">休み</div>'
       : `<div class="s-dest1">${g.time ? `<small>${esc(g.time)}</small>` : ''}<div>${esc(g.site)}</div>${g.off ? `<small class="halfoff">（${g.off}休み）</small>` : ''}</div>`;
     const html = merged.map(m => `<div class="s-grp" style="font-size:${fs}px"><div class="s-ppl">${m.people.map(p => `<div>・${esc(p)}<small>さん</small></div>`).join('')}</div>
         <div class="s-brace"></div><div class="s-dest">${m.dests.map(destHtml).join('')}</div></div>`).join('');
-    add('s-workers', `left:440px;top:72px;width:${AREA_W}px;max-height:${AREA_H + 10}px`, html);
+    // 「・」の点が、氏名（例：駒井）の最後の字の終わりの真上にくるように置く
+    const nameEnd = 330 + 15 * 2 + 22 + 28 * [...(st.name || '')].length;
+    const left = Math.round(Math.min(Math.max(nameEnd - fs / 2, 380), 480));
+    add('s-workers', `left:${left}px;top:56px;width:${PAGE_W - left - 4}px;max-height:${AREA_H + 10}px`, html);
   }
 
   // 表の枠
@@ -532,7 +544,7 @@ function renderPage(day, st) {
   for (let k = 0; k <= span; k++) {
     const h = startH + k, y = TOP + k * H;
     add('s-tick', `left:${L - 12}px;top:${y}px`);
-    if (h <= endH) add('s-label', `left:${L - 78}px;top:${y - 10}px;width:62px`, `${h}:00`);
+    if (h <= endH) add('s-label', `left:${L - 82}px;top:${y - 12}px;width:64px`, `${h}:00`);
     if (h === endH) add('s-hline', `left:${L}px;top:${y}px;width:${R - L}px`);
     else add('s-dot', `left:${L}px;top:${y}px;width:${R - L - 22}px`);
   }
@@ -550,30 +562,30 @@ function renderPage(day, st) {
     // 長い文字は小さくし、それでも入らなければ作業の時間帯いっぱいまで使う
     const fit = (text, width) => {
       const len = [...String(text || '')].reduce((n, c) => n + (c.charCodeAt(0) < 0x2000 ? 0.6 : 1), 0);
-      let fs = Math.min(19, Math.max(13, width / Math.max(len, 1)));
+      let fs = Math.min(23, Math.max(15, width / Math.max(len, 1)));
       const lines = Math.ceil(len * fs / width);
       let top = y1, hh = y2 - y1;
-      if (lines * fs * 1.25 > hh) { top = arrowTop; hh = arrowH; if (lines * fs * 1.25 > hh) fs = Math.max(10, hh / 1.25 / lines); }
+      if (lines * fs * 1.25 > hh) { top = arrowTop; hh = arrowH; if (lines * fs * 1.25 > hh) fs = Math.max(11, hh / 1.25 / lines); }
       return `top:${top}px;height:${hh}px;font-size:${fs}px`;
     };
     const h = y2 - y1;
-    const small = h < 30 ? ' small' : '';
+    const small = h < 36 ? ' small' : '';
     if (b.type === 'break') {
       add('s-hline', `left:${L}px;top:${arrowTop}px;width:${R - L - 22}px`);
       add('s-hline', `left:${L}px;top:${arrowTop + arrowH}px;width:${R - L - 22}px`);
       add('s-text' + small, `left:${L + 18}px;top:${y1}px;height:${h}px;width:${M - L - 24}px`, `（${esc(b.content || '休憩')}）`);
       return;
     }
-    add('s-arrow', `left:${L + 26}px;top:${arrowTop + 3}px;height:${Math.max(0, arrowH - 6)}px`, arrowH >= 24 ? '<i class="up"></i><i class="dn"></i>' : '');
+    add('s-arrow', `left:${L + 28}px;top:${arrowTop + 3}px;height:${Math.max(0, arrowH - 6)}px`, arrowH >= 28 ? '<i class="up"></i><i class="dn"></i>' : '');
     const sameSite = b.site && b.site === prevSite;
-    add('s-text' + small + (sameSite ? ' ditto' : ''), `left:${L + 48}px;width:${M - L - 56}px;` + (sameSite ? `top:${y1}px;height:${h}px` : fit(b.site, M - L - 56)), sameSite ? '〃' : esc(b.site));
+    add('s-text' + small + (sameSite ? ' ditto' : ''), `left:${L + 52}px;width:${M - L - 60}px;` + (sameSite ? `top:${y1}px;height:${h}px` : fit(b.site, M - L - 60)), sameSite ? '〃' : esc(b.site));
     prevSite = b.site;
     const ditto = b.content && b.content === prevContent;
-    add('s-text' + small + (ditto ? ' ditto' : ''), `left:${M + 16}px;width:${R - M - 28}px;` + (ditto ? `top:${y1}px;height:${h}px` : fit(b.content, R - M - 28)), ditto ? '〃' : esc(b.content));
+    add('s-text' + small + (ditto ? ' ditto' : ''), `left:${M + 16}px;width:${R - M - 30}px;` + (ditto ? `top:${y1}px;height:${h}px` : fit(b.content, R - M - 30)), ditto ? '〃' : esc(b.content));
     prevContent = b.content;
   });
 
-  if (st.company) add('s-foot', `left:0;top:${bottom + 70}px;width:794px`, esc(st.company));
+  if (st.company) add('s-foot', `left:0;top:${Math.min(bottom + 26, PAGE_H - 30)}px;width:${PAGE_W}px`, esc(st.company));
 
   const el = document.createElement('div');
   el.className = 'sheet';
