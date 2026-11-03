@@ -403,16 +403,17 @@ async function fetchPrintDays() {
   state.printDays = days.map(normalizeDay).filter(d => d.blocks.length || d.crew.length);
   return state.printDays;
 }
-// 用紙の並べ方（mm）。左側は、とじしろとして広めにあける
-// slotW：1日分の幅。高さは PAGE_W:PAGE_H の比で決まる
+// 用紙の並べ方（mm）
+// B5は真ん中で切って半分ずつファイルにとじるので、左右それぞれの半分の左側をあける
+// pitch：半分の幅、left：半分の中での左のあき（とじしろ）、slotW：1日分の幅（高さは PAGE_W:PAGE_H の比）
 const FORMATS = {
-  b5: { perSheet: 2, mm: [257, 182], orientation: 'landscape', left: 20, top: 6, slotW: 113, gap: 6 },
-  a4: { perSheet: 1, mm: [210, 297], orientation: 'portrait', left: 25, top: 18, slotW: 170, gap: 0 },
+  b5: { perSheet: 2, mm: [257, 182], orientation: 'landscape', pitch: 128.5, left: 12, top: 6, slotW: 113, cutMarks: true },
+  a4: { perSheet: 1, mm: [210, 297], orientation: 'portrait', pitch: 210, left: 25, top: 18, slotW: 170 },
 };
 function printFormat() { return FORMATS[$('#pFormat').value] || FORMATS.b5; }
 function paperSize(fmt) { return fmt.orientation === 'landscape' ? [Math.max(...fmt.mm), Math.min(...fmt.mm)] : fmt.mm; }
 function slotRect(fmt, slot) {
-  return { x: fmt.left + slot * (fmt.slotW + fmt.gap), y: fmt.top, w: fmt.slotW, h: fmt.slotW * PAGE_H / PAGE_W };
+  return { x: slot * fmt.pitch + fmt.left, y: fmt.top, w: fmt.slotW, h: fmt.slotW * PAGE_H / PAGE_W };
 }
 // プレビュー用：用紙1枚（余白込み）を画面に描く
 function renderSheets(days, fmt) {
@@ -428,6 +429,14 @@ function renderSheets(days, fmt) {
       const page = renderPage(days[i + j], state.settings);
       page.style.left = r.x * k + 'px'; page.style.top = r.y * k + 'px';
       el.appendChild(page);
+    }
+    if (fmt.cutMarks) {
+      ['top:0', 'bottom:0'].forEach(pos => {
+        const m = document.createElement('div');
+        m.className = 'cutmark';
+        m.style.cssText = `left:${fmt.pitch * k}px;${pos};height:${4 * k}px`;
+        el.appendChild(m);
+      });
     }
     sheets.push({ el, w: pw * k, h: ph * k });
   }
@@ -474,6 +483,13 @@ async function makePdf() {
       cap.appendChild(page);
       const canvas = await html2canvas(page, { scale: 2.8, backgroundColor: '#ffffff', logging: false, windowWidth: PAGE_W, windowHeight: PAGE_H });
       if (i > 0 && slot === 0) pdf.addPage(fmt.mm, fmt.orientation);
+      if (slot === 0 && fmt.cutMarks) {
+        // 真ん中で切るための目印（上下の端に短い線）
+        const [, sheetH] = paperSize(fmt);
+        pdf.setDrawColor(150); pdf.setLineWidth(0.2);
+        pdf.line(fmt.pitch, 0, fmt.pitch, 4);
+        pdf.line(fmt.pitch, sheetH - 4, fmt.pitch, sheetH);
+      }
       const r = slotRect(fmt, slot);
       pdf.addImage(canvas.toDataURL('image/jpeg', 0.85), 'JPEG', r.x, r.y, r.w, r.h);
     }
@@ -513,7 +529,7 @@ function renderPage(day, st) {
   // 右上：一緒に作業した人と行き先（グループごとに線で区切る）
   const crew = (day.crew || []).filter(g => g.people.length);
   if (crew.length) {
-    const AREA_W = 330, AREA_H = 165;
+    const AREA_H = 168; // 下の「氏名」の線にかからない高さ
     // 同じ顔ぶれのグループは1つにまとめ、名前は1回だけ、行き先を上下に並べる（例：半日 鈴木邸／半日 鳥羽邸）
     const merged = [];
     crew.forEach(g => {
@@ -521,18 +537,27 @@ function renderPage(day, st) {
       const m = merged.find(x => x.key === key);
       if (m) m.dests.push(g); else merged.push({ key, people: g.people, dests: [g] });
     });
-    // 小さい字（時間・半日休み）は0.75行として数え、全体が枠に収まる文字の大きさにする
-    const destLines = g => g.off === '1日' ? 1 : 1 + (g.time ? 0.75 : 0) + (g.off ? 0.75 : 0);
-    const lines = merged.reduce((n, m) => n + Math.max(m.people.length, m.dests.reduce((k, g) => k + destLines(g), 0)) * 1.3 + 0.4, 0);
-    const fs = Math.min(26, AREA_H / lines); // 日付と同じくらいの大きさまで
+    // 氏名（例：駒井）の最後の字の終わりより、少し右から始める
+    const nameEnd = 330 + 15 * 2 + 22 + 28 * [...(st.name || '')].length;
+    const left = Math.round(Math.min(Math.max(nameEnd + 22, 400), 510));
+    const areaW = PAGE_W - left - 4;
+    // 行き先の折り返しも数えて、枠に収まるいちばん大きい文字（日付と同じくらいまで）を選ぶ
+    const textLen = t => [...String(t || '')].reduce((n, c) => n + (c.charCodeAt(0) < 0x2000 ? 0.6 : 1), 0);
+    const heightAt = fs => merged.reduce((sum, m) => {
+      const nameW = Math.max(...m.people.map(p => textLen(p) + 2.2)) * fs;
+      const destW = Math.max(fs * 2, areaW - nameW - 19);
+      const destH = m.dests.reduce((h, g) => h + (g.off === '1日' ? 1.2 * fs
+        : Math.max(1, Math.ceil(textLen(g.site) * fs / destW)) * 1.2 * fs + (g.time ? 0.84 * fs : 0) + (g.off ? 0.78 * fs : 0)), 0)
+        + (m.dests.length - 1) * 0.25 * fs;
+      return sum + Math.max(m.people.length * 1.3 * fs, destH) + 8;
+    }, 0);
+    let fs = 26;
+    while (fs > 11 && heightAt(fs) > AREA_H) fs -= 0.5;
     const destHtml = g => g.off === '1日' ? '<div class="s-dest1 off">休み</div>'
       : `<div class="s-dest1">${g.time ? `<small>${esc(g.time)}</small>` : ''}<div>${esc(g.site)}</div>${g.off ? `<small class="halfoff">（${g.off}休み）</small>` : ''}</div>`;
     const html = merged.map(m => `<div class="s-grp" style="font-size:${fs}px"><div class="s-ppl">${m.people.map(p => `<div>・${esc(p)}<small>さん</small></div>`).join('')}</div>
         <div class="s-brace"></div><div class="s-dest">${m.dests.map(destHtml).join('')}</div></div>`).join('');
-    // 「・」の点が、氏名（例：駒井）の最後の字の終わりの真上にくるように置く
-    const nameEnd = 330 + 15 * 2 + 22 + 28 * [...(st.name || '')].length;
-    const left = Math.round(Math.min(Math.max(nameEnd - fs / 2, 380), 480));
-    add('s-workers', `left:${left}px;top:56px;width:${PAGE_W - left - 4}px;max-height:${AREA_H + 10}px`, html);
+    add('s-workers', `left:${left}px;top:56px;width:${areaW}px`, html);
   }
 
   // 表の枠
