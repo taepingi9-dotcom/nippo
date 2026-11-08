@@ -531,11 +531,20 @@ function renderPage(day, st) {
   if (crew.length) {
     const AREA_H = 168; // 下の「氏名」の線にかからない高さ
     // 同じ顔ぶれのグループは1つにまとめ、名前は1回だけ、行き先を上下に並べる（例：半日 鈴木邸／半日 鳥羽邸）
-    const merged = [];
+    const byPeople = [];
     crew.forEach(g => {
       const key = [...g.people].sort().join('、');
-      const m = merged.find(x => x.key === key);
-      if (m) m.dests.push(g); else merged.push({ key, people: g.people, dests: [g] });
+      const m = byPeople.find(x => x.key === key);
+      if (m) m.dests.push(g); else byPeople.push({ key, people: [...g.people], dests: [g] });
+    });
+    // 行き先が同じでも、まとめるのは隣り合う人だけ（入力した人の順番は変えない）
+    const merged = [];
+    byPeople.forEach(m => {
+      const sig = m.dests.map(g => [g.off, g.time, g.site].join('|')).join('||');
+      const last = merged[merged.length - 1];
+      const same = last && last.sig === sig ? last : null;
+      if (same) m.people.forEach(p => { if (!same.people.includes(p)) same.people.push(p); });
+      else merged.push({ sig, people: m.people, dests: m.dests });
     });
     // 氏名（例：駒井）の最後の字の終わりより、少し右から始める
     const nameEnd = 330 + 15 * 2 + 22 + 28 * [...(st.name || '')].length;
@@ -545,10 +554,19 @@ function renderPage(day, st) {
     const textLen = t => [...String(t || '')].reduce((n, c) => n + (c.charCodeAt(0) < 0x2000 ? 0.6 : 1), 0);
     const heightAt = fs => merged.reduce((sum, m) => {
       const nameW = Math.max(...m.people.map(p => textLen(p) + 2.2)) * fs;
-      const destW = Math.max(fs * 2, areaW - nameW - 19);
-      const destH = m.dests.reduce((h, g) => h + (g.off === '1日' ? 1.2 * fs
-        : Math.max(1, Math.ceil(textLen(g.site) * fs / destW)) * 1.2 * fs + (g.time ? 0.84 * fs : 0) + (g.off ? 0.78 * fs : 0)), 0)
-        + (m.dests.length - 1) * 0.25 * fs;
+      const destW = Math.max(fs * 2, areaW - nameW - 26);
+      // 行き先は横に並べ、入りきらないときだけ次の行へ折り返す
+      const gapX = 0.6 * fs, gapY = 0.2 * fs;
+      let x = 0, rowH = 0, destH = 0;
+      m.dests.forEach(g => {
+        const w = Math.min(destW, fs * Math.max(textLen(g.off === '1日' ? '休み' : g.site), textLen(g.time) * 0.7, g.off && g.off !== '1日' ? 3.5 : 0));
+        const h = g.off === '1日' ? 1.2 * fs
+          : Math.max(1, Math.ceil(textLen(g.site) * fs / destW)) * 1.2 * fs + (g.time ? 0.84 * fs : 0) + (g.off ? 0.78 * fs : 0);
+        if (x > 0 && x + gapX + w > destW) { destH += rowH + gapY; x = 0; rowH = 0; }
+        x += (x > 0 ? gapX : 0) + w;
+        rowH = Math.max(rowH, h);
+      });
+      destH += rowH;
       return sum + Math.max(m.people.length * 1.3 * fs, destH) + 8;
     }, 0);
     let fs = 26;
