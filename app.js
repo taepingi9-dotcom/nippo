@@ -550,10 +550,10 @@ function renderPage(day, st) {
     const nameEnd = 330 + 15 * 2 + 22 + 28 * [...(st.name || '')].length;
     const left = Math.round(Math.min(Math.max(nameEnd + 22, 400), 510));
     const areaW = PAGE_W - left - 4;
-    // 行き先の折り返しも数えて、枠に収まるいちばん大きい文字（日付と同じくらいまで）を選ぶ
+    // 名前を優先して大きくする。行き先は枠に収まる大きさまで下げるが、名前の7割より小さくはしない
     const textLen = t => [...String(t || '')].reduce((n, c) => n + (c.charCodeAt(0) < 0x2000 ? 0.6 : 1), 0);
-    const heightAt = fs => merged.reduce((sum, m) => {
-      const nameW = Math.max(...m.people.map(p => textLen(p) + 2.2)) * fs;
+    const heightAt = (nameFs, fs) => merged.reduce((sum, m) => {
+      const nameW = Math.max(...m.people.map(p => textLen(p) + 2.2)) * nameFs;
       const destW = Math.max(fs * 2, areaW - nameW - 26);
       // 行き先は横に並べ、入りきらないときだけ次の行へ折り返す
       const gapX = 0.6 * fs, gapY = 0.2 * fs;
@@ -567,13 +567,17 @@ function renderPage(day, st) {
         rowH = Math.max(rowH, h);
       });
       destH += rowH;
-      return sum + Math.max(m.people.length * 1.3 * fs, destH) + 8;
+      return sum + Math.max(m.people.length * 1.3 * nameFs, destH) + 8;
     }, 0);
-    let fs = 26;
-    while (fs > 11 && heightAt(fs) > AREA_H) fs -= 0.5;
+    let nameFs = 26, fs = 26;
+    search: for (; nameFs >= 11; nameFs -= 0.5) {
+      for (fs = nameFs; fs >= Math.max(11, nameFs * 0.7); fs -= 0.5) {
+        if (heightAt(nameFs, fs) <= AREA_H) break search;
+      }
+    }
     const destHtml = g => g.off === '1日' ? '<div class="s-dest1 off">休み</div>'
       : `<div class="s-dest1">${g.time ? `<small>${esc(g.time)}</small>` : ''}<div>${esc(g.site)}</div>${g.off ? `<small class="halfoff">（${g.off}休み）</small>` : ''}</div>`;
-    const html = merged.map(m => `<div class="s-grp" style="font-size:${fs}px"><div class="s-ppl">${m.people.map(p => `<div>・${esc(p)}<small>さん</small></div>`).join('')}</div>
+    const html = merged.map(m => `<div class="s-grp" style="font-size:${fs}px"><div class="s-ppl" style="font-size:${nameFs}px">${m.people.map(p => `<div>・${esc(p)}<small>さん</small></div>`).join('')}</div>
         <div class="s-brace"></div><div class="s-dest">${m.dests.map(destHtml).join('')}</div></div>`).join('');
     add('s-workers', `left:${left}px;top:56px;width:${areaW}px`, html);
   }
